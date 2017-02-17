@@ -1,7 +1,7 @@
 SmartBowlService/build/
 SmartBowlService/dist/
 SmartBowlService/test/
-**/SmartBowlConfig.h
+SmartBowlDevice/SmartBowlConfig.h
 
 # Package Files #
 *.jar
