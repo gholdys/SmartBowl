@@ -1,0 +1,227 @@
+
+<!DOCTYPE html>
+<!-- Adapted from  https://bl.ocks.org/mbostock/3885304 -->
+<html>
+    <head>
+        <title>SmartBowl Dashboard for "{{id}}" - Last 24 Hours</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta charset="utf-8">
+
+        <style>
+        
+            .amountAxis path, .amountAxis line {
+                fill: none;
+                stroke: rgb(24, 89, 169);
+                stroke-width: 1px;
+                shape-rendering: crispEdges;
+            }
+            
+            .amountAxis text {
+                fill: rgb(24, 89, 169);
+                stroke: none;                
+            }
+
+            .amountLine {
+                fill: none;
+                stroke: rgb(24, 89, 169);
+                stroke-width: 3px;
+            }
+
+            .consumedBar {
+                fill: rgb(241, 89, 95);
+            }
+            
+            .addedBar {
+                fill: rgb(121, 195, 106);
+            }
+            
+            .grid line {
+                stroke: lightgrey;
+                stroke-opacity: 0.7;
+                shape-rendering: crispEdges;
+            }
+
+            .grid path {
+                stroke-width: 0;
+            }
+            
+            #topDisplay {
+                margin-top: 20px;
+                margin-bottom: 20px;
+                font-family: sans-serif;
+                font-size: 14pt;
+                display: block;
+            }
+
+            #noDataMessage {
+                margin-top: 20px;
+                font-family: sans-serif;
+                font-size: 14pt;
+                display: none;
+            }
+
+        </style>
+        <script src="../lib/d3.min.js"></script>
+        <script src="../lib/token.js"></script>
+    </head>
+    <body>
+        <div align="center">
+            <h1>SmartBowl Dashboard for "{{id}}" - Last 24 Hours</h1>
+            <div id="topDisplay">                
+                Latest data from: <span id="timeDisplay">--:--:--</span>&nbsp;&nbsp;
+                Amount of food remaining: <span id="amountDisplay">--</span>g&nbsp;&nbsp;
+                Total consumed: <span id="totalConsumedDisplay">--</span>g&nbsp;&nbsp;
+                Total added: <span id="totalAddedDisplay">--</span>g
+            </div>
+            <div id="noDataMessage">There are no entries for this device</div>
+            <svg width="1200" height="500"></svg>
+        </div>
+        
+        <script>
+            var querry = "../dataSets/{{id}}?hoursBack=24";  // Get last 24 hours
+            var timeDisplayFormat = d3.timeFormat("%H:%M:%S");
+            var amountDisplayFormat = d3.format("3.0f");
+            
+            var svg = d3.select("svg"),
+                      margin = {top: 20, right: 40, bottom: 20, left: 40},
+                      width = +svg.attr("width") - margin.left - margin.right,
+                      height = +svg.attr("height") - margin.top - margin.bottom;
+
+            // Axis:
+            var x = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                yAmount = d3.scaleLinear().rangeRound([height, 0]),
+                yConsumedAdded = d3.scaleLinear().rangeRound([height, 0]);
+
+            // Amount Path:
+            var amountLine = d3.line()
+                .x(function (d) {
+                    return x(d.time);
+                })
+                .y(function (d) {
+                    return yAmount(d.amount);
+                });
+
+            // Main Group:
+            var g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+            
+            // Call to REST service:
+            d3.csv(querry, function (d) {                
+                d.time = new Date( d.time );
+                d.amount = parseFloat(d.amount);
+                d.consumed = parseFloat(d.consumed);
+                d.added = parseFloat(d.added);
+                return d;
+            }, function (error, data) {
+                if (error)
+                    throw error;
+                
+                if ( data.length == 0 ) {
+                    d3.select("#topDisplay").style("display","none");
+                    d3.select("#noDataMessage").style("display","block");
+                    return;
+                }
+                
+                var latestDateTime = data[data.length - 1].time;
+                var totalConsumed = 0.0;
+                var totalAdded = 0.0;
+                for ( var i=0; i<data.length; i++ ) {
+                    totalConsumed += data[i].consumed;
+                    totalAdded += data[i].added;
+                }
+                d3.select("#timeDisplay").html( timeDisplayFormat(latestDateTime) );
+                d3.select("#amountDisplay").html( amountDisplayFormat(data[data.length - 1].amount) );
+                d3.select("#totalConsumedDisplay").html( amountDisplayFormat(totalConsumed) );
+                d3.select("#totalAddedDisplay").html( amountDisplayFormat(totalAdded) );
+                
+                // Generate a X-Axis domain. 
+                // If the data time-span is less than 24 hours, fill in the first hours so that there are always 24 hours on the X axis
+                var xDomain = new Array();
+                var hoursBack = 23;
+                while ( hoursBack > data.length ) {
+                    var dateTime = new Date(latestDateTime);
+                    dateTime.setHours( latestDateTime.getHours() - hoursBack );
+                    xDomain.push( dateTime );
+                    hoursBack--;
+                }
+                for ( var i=0; i<data.length; i++ ) {
+                    xDomain.push( data[i].time );
+                }
+                
+                // Set axis domains:
+                x.domain( xDomain );
+                yAmount.domain( [0, d3.max( data, function (d) { return d.amount; } ) ] );
+                yConsumedAdded.domain([0, d3.max(data, function(d) { return Math.max(d.added, d.consumed); })]);
+
+                g.append("g")
+                        .attr("class", "axis axis--x")
+                        .attr("transform", "translate(0," + height + ")")
+                        .call( d3.axisBottom(x).ticks(d3.timeHour.every(1)).tickFormat(d3.timeFormat("%H")) );
+                        
+                g.append("g")
+                        .attr("class", "grid")
+                        .attr("transform", "translate(" + (x.bandwidth()/2+1) +"," + height + ")")
+                        .call( d3.axisBottom(x).tickSize(-height).tickFormat("") );
+
+                g.selectAll(".consumedBar")
+                        .data(data)
+                        .enter().append("rect")
+                        .attr("class", "consumedBar")
+                        .attr("x", function (d) {
+                            return x(d.time);
+                        })
+                        .attr("y", function (d) {
+                            return yConsumedAdded(d.consumed);
+                        })
+                        .attr("width", x.bandwidth()/2 )
+                        .attr("height", function (d) {
+                            return height - yConsumedAdded(d.consumed);
+                        });
+                        
+                g.selectAll(".addedBar")
+                        .data(data)
+                        .enter().append("rect")
+                        .attr("class", "addedBar")
+                        .attr("x", function (d) {
+                            return x(d.time) + x.bandwidth()/2;
+                        })
+                        .attr("y", function (d) {
+                            return yConsumedAdded( d.added );
+                        })
+                        .attr("width", x.bandwidth()/2 )
+                        .attr("height", function (d) {
+                            return height - yConsumedAdded( d.added );
+                        });
+
+                g.append("path")
+                        .datum(data)
+                        .attr("class", "amountLine")
+                        .attr("transform", "translate(" + x.bandwidth()/2 + ",0)")
+                        .attr("d", amountLine);
+                
+                g.append("g")
+                        .attr("class", "axis amountAxis")
+                        .call( d3.axisLeft(yAmount) )
+                        .append("text")
+                        .attr("transform", "rotate(-90)")
+                        .attr("y", 6)
+                        .attr("dy", "0.71em")
+                        .style("text-anchor", "end")
+                        .text("Amount Remaining (g)");
+                
+                g.append("g")
+                        .attr("class", "axis axis--y")
+                        .attr("transform", "translate(" + width + ",0)")
+                        .call( d3.axisRight(yConsumedAdded) )
+                        .append("text")
+                        .attr("fill", "#000")
+                        .attr("transform", "rotate(-90)")
+                        .attr("y", -16)
+                        .attr("dy", "0.71em")
+                        .attr("text-anchor", "end")
+                        .text("Consumed/Added (g)");
+            });
+
+        </script>
+    </body>
+</html>
